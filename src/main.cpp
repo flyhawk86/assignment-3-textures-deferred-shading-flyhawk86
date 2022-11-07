@@ -34,6 +34,8 @@ BufferObject NBO;
 // VertexBufferObject wrapper
 BufferObject IndexBuffer;
 
+BufferObject TBO; // texture coordinates
+
 // Contains the vertex positions
 std::vector<glm::vec3> V(3);
 // Contains the vertex positions
@@ -433,6 +435,43 @@ int main(void)
     ImageRGB image;
     bool imageAvailable = loadPPM(image, "../data/land_shallow_topo_2048.ppm");
 
+
+    TBO.init();
+    std::vector<glm::vec2> texCoords;
+    texCoords.resize(0);
+
+
+    int stackCount = 10, sectorCount = 20;
+    for (int i = 0; i <= stackCount; ++i) {
+        for (int j = 0; j <= sectorCount; ++j) {
+            texCoords.emplace_back( float(j)/sectorCount, float(i)/stackCount);
+        }
+    }
+
+    TBO.update(texCoords);
+
+    GLuint tex;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+
+
+    unsigned char* pixels = (unsigned char*)malloc(image.w*image.h*3*sizeof(unsigned char));
+
+
+    for(int pI = 0, i = 0; i < image.w*image.h; i++, pI += 3){
+        pixels[pI] = image.data[i].r;
+        pixels[pI+1] = image.data[i].g;
+        pixels[pI+2] = image.data[i].b;
+    }
+
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, image.w, image.h, 0, GL_RGB, GL_UNSIGNED_BYTE, pixels);
+    free(pixels);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
 #else
     // load  OFF file
     glm::vec3 min, max, tmpVec;
@@ -501,6 +540,8 @@ int main(void)
     // in the vertex shader
     program.bindVertexAttribArray("position", VBO);
     program.bindVertexAttribArray("normal", NBO);
+
+    program.bindVertexAttribArray("texcoord", TBO); //
 
     // Register the keyboard callback
     glfwSetKeyCallback(window, key_callback);
