@@ -450,13 +450,13 @@ int main(void)
 
     TBO.update(texCoords);
 
+
+    // load texture
     GLuint tex;
     glGenTextures(1, &tex);
     glBindTexture(GL_TEXTURE_2D, tex);
 
-
     unsigned char* pixels = (unsigned char*)malloc(image.w*image.h*3*sizeof(unsigned char));
-
 
     for(int pI = 0, i = 0; i < image.w*image.h; i++, pI += 3){
         pixels[pI] = image.data[i].r;
@@ -471,6 +471,96 @@ int main(void)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+
+
+    // for part 2 render to texture
+    // reference the posted tutorial http://www.opengl-tutorial.org/intermediate-tutorials/tutorial-14-render-to-texture/
+
+    // We would expect width and height to be 800 and 600
+    int windowWidth = 800;
+    int windowHeight = 600;
+    // But on MacOS X with a retina screen it'll be 800*2 and 600*2, so we get the actual framebuffer size:
+    glfwGetFramebufferSize(window, &windowWidth, &windowHeight);
+
+
+    GLuint FramebufferName = 0;
+    glGenFramebuffers(1, &FramebufferName);
+    glBindFramebuffer(GL_FRAMEBUFFER, FramebufferName);
+
+    GLuint renderedTexture;
+    glGenTextures(1, &renderedTexture);
+
+    glBindTexture(GL_TEXTURE_2D, renderedTexture);
+
+//    glTexImage2D(GL_TEXTURE_2D, 0,GL_RGB, 800, 600, 0,GL_RGB, GL_UNSIGNED_BYTE, 0);
+    glTexImage2D(GL_TEXTURE_2D, 0,GL_RGB, windowWidth, windowHeight, 0,GL_RGB, GL_UNSIGNED_BYTE, 0);
+
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+
+    // The depth buffer
+    GLuint depthrenderbuffer;
+    glGenRenderbuffers(1, &depthrenderbuffer);
+    glBindRenderbuffer(GL_RENDERBUFFER, depthrenderbuffer);
+//    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, 800, 600);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, windowWidth, windowHeight);
+
+
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depthrenderbuffer);
+
+    // Set "renderedTexture" as our colour attachement #0
+    glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, renderedTexture, 0);
+
+    // Set the list of draw buffers.
+    GLenum DrawBuffers[1] = {GL_COLOR_ATTACHMENT0};
+    glDrawBuffers(1, DrawBuffers); // "1" is the size of DrawBuffers
+
+    // Always check that our framebuffer is ok
+    if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE){
+        std::cout << "ERROR::FRAMEBUFFER:: Framebuffer is not complete!" << std::endl;
+        return false;
+    }
+
+    static const GLfloat g_quad_vertex_buffer_data[] = {
+            -1.0f, -1.0f, 0.0f,
+            1.0f, -1.0f, 0.0f,
+            -1.0f,  1.0f, 0.0f,
+            -1.0f,  1.0f, 0.0f,
+            1.0f, -1.0f, 0.0f,
+            1.0f,  1.0f, 0.0f,
+    };
+
+    GLuint quad_vertexbuffer;
+    glGenBuffers(1, &quad_vertexbuffer);
+    glBindBuffer(GL_ARRAY_BUFFER, quad_vertexbuffer);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(g_quad_vertex_buffer_data), g_quad_vertex_buffer_data, GL_STATIC_DRAW);
+
+
+
+    // another shader
+    Program program2;
+    // load fragment shader file
+    std::ifstream fragShaderFile2("../shader/fragment2.glsl");
+    std::stringstream fragCode2;
+    fragCode2 << fragShaderFile2.rdbuf();
+    // load vertex shader file
+    std::ifstream vertShaderFile2("../shader/vertex2.glsl");
+    std::stringstream vertCode2;
+    vertCode2 << vertShaderFile2.rdbuf();
+    // Compile the two shaders and upload the binary to the GPU
+    // Note that we have to explicitly specify that the output "slot" called outColor
+    // is the one that we want in the fragment buffer (and thus on screen)
+    program2.init(vertCode2.str(), fragCode2.str(), "outColor");
+    program2.bind();
+
+    GLint renderedTextureID  = program2.uniform("renderedTexture"); // for later texture binding
+
+
+
 
 #else
     // load  OFF file
@@ -543,6 +633,8 @@ int main(void)
 
     program.bindVertexAttribArray("texcoord", TBO); //
 
+    GLint TextureID  = program.uniform("tex"); // for later texture binding
+
     // Register the keyboard callback
     glfwSetKeyCallback(window, key_callback);
 
@@ -570,6 +662,13 @@ int main(void)
         viewMatrix = glm::lookAt(cameraPos, cameraTarget, cameraUp);
         projMatrix = glm::perspective(glm::radians(35.0f), (float)width / (float)height, 0.1f, 100.0f);
 
+
+        // Render to our framebuffer
+        glBindFramebuffer(GL_FRAMEBUFFER, FramebufferName);
+//        glViewport(0,0,800,600);
+        glViewport(0,0,windowWidth, windowHeight);
+
+
         // Bind your VAO (not necessary if you have only one)
         VAO.bind();
 
@@ -596,10 +695,57 @@ int main(void)
 
         // Enable depth test
         glEnable(GL_DEPTH_TEST);
+
+
+        // Bind our texture in Texture Unit 0
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, tex);
+        glUniform1i(TextureID, 0);
+
+        program.bindVertexAttribArray("position", VBO);
+        program.bindVertexAttribArray("normal", NBO);
+        program.bindVertexAttribArray("texcoord", TBO);
         
         // Draw a triangle
         //glDrawArrays(GL_TRIANGLES, 0, V.size());
         glDrawElements(GL_TRIANGLES, T.size() * 3, GL_UNSIGNED_INT, 0);
+
+        glDisableVertexAttribArray(0);
+        glDisableVertexAttribArray(1);
+        glDisableVertexAttribArray(2);
+
+
+
+        // Render to the screen
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        // Render on the whole framebuffer, complete from the lower left corner to the upper right
+//        glViewport(0,0,800*2,600*2); // the actual framebuffer size on MacOSX
+        glViewport(0,0,windowWidth, windowHeight);
+
+
+        // Clear the screen
+        glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        // Use our shader
+        program2.bind();
+
+        // Bind our texture in Texture Unit 0
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, renderedTexture);
+        // Set our "renderedTexture" sampler to use Texture Unit 0
+        glUniform1i(renderedTextureID, 0);
+
+        // bind vertices
+        glEnableVertexAttribArray(0);
+        glBindBuffer(GL_ARRAY_BUFFER, quad_vertexbuffer);
+        glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,0,(void*)0);
+
+        // Draw the QUAD
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+
+        glDisableVertexAttribArray(0);
+
+
 
         // Swap front and back buffers
         glfwSwapBuffers(window);
@@ -607,6 +753,16 @@ int main(void)
         // Poll for and process events
         glfwPollEvents();
     }
+
+
+    glDeleteFramebuffers(1, &FramebufferName);
+    glDeleteTextures(1, &renderedTexture);
+    glDeleteRenderbuffers(1, &depthrenderbuffer);
+    glDeleteBuffers(1, &quad_vertexbuffer);
+    glDeleteTextures(1, &tex);
+
+    program2.free();
+    TBO.free();
 
     // Deallocate opengl memory
     program.free();

@@ -28,7 +28,6 @@ void main()
 //    outColor = texture(tex, Texcoord) * vec4(vec3(1.0, 1.0, 1.0), 1.0); //
 
 
-
     vec3 col = texture(tex, Texcoord).xyz;
     vec3 triangleColorModified = col;
     vec3 normal = normalize(n);
