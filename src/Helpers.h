@@ -105,6 +105,8 @@ public:
 
   Program() : vertex_shader(0), fragment_shader(0), program_shader(0) { }
 
+  GLuint getprogram_shader() const{return program_shader;};
+
   // Create a new shader from the specified source strings
   bool init(const std::string &vertex_shader_string,
   const std::string &fragment_shader_string,
