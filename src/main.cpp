@@ -424,7 +424,7 @@ int main(void)
     glm::mat4 modelMatrix = glm::mat4(1.0f);
 
     // 1: generate sphere, 0: load OFF model
-#if 1
+#if 0
     // generate sphere (radius, #sectors, #stacks, vertices, normals, triangle indices)
     sphere(1.0f, 20, 10, V, VN, T);
     VBO.update(V);
@@ -435,44 +435,50 @@ int main(void)
     ImageRGB image;
     bool imageAvailable = loadPPM(image, "../data/land_shallow_topo_2048.ppm");
 
+#else
+    // load  OFF file
+    glm::vec3 min, max, tmpVec;
+    std::cout << "Loading OFF file...";
+    loadOFFFile("../data/stanford_dragon2.off", V, T, min, max);
+    //loadOFFFile("../data/bunny.off", V, T, min, max);
+    std::cout << " done! " << V.size() << " vertices, " << T.size() << " triangles" << std::endl;
+    VBO.update(V);
+    IndexBuffer.update(T);
 
-    TBO.init();
-    std::vector<glm::vec2> texCoords;
-    texCoords.resize(0);
-
-
-    int stackCount = 10, sectorCount = 20;
-    for (int i = 0; i <= stackCount; ++i) {
-        for (int j = 0; j <= sectorCount; ++j) {
-            texCoords.emplace_back( float(j)/sectorCount, float(i)/stackCount);
-        }
+    // compute model matrix so that the mesh is inside a -1..1 cube
+    tmpVec = max - min;
+    float maxVal = glm::max(tmpVec.x, glm::max(tmpVec.y, tmpVec.z));
+    tmpVec /= 2.0f;
+    modelMatrix = glm::scale(glm::mat4(1.0f), glm::vec3(2.0f / maxVal));
+    modelMatrix *= glm::translate(glm::mat4(1.0f), -(min + tmpVec));
+    
+    // compute face normals
+    std::cout << "Computing face normals...";
+    std::vector<glm::vec3> faceN(3);
+    faceN.resize(T.size());
+    for (unsigned int i = 0; i < faceN.size(); i++) {
+        faceN[i] = glm::normalize(glm::cross(V[T[i].y] - V[T[i].x], V[T[i].z] - V[T[i].x]));
     }
-
-    TBO.update(texCoords);
-
-
-    // load texture
-    GLuint tex;
-    glGenTextures(1, &tex);
-    glBindTexture(GL_TEXTURE_2D, tex);
-
-    unsigned char* pixels = (unsigned char*)malloc(image.w*image.h*3*sizeof(unsigned char));
-
-    for(int pI = 0, i = 0; i < image.w*image.h; i++, pI += 3){
-        pixels[pI] = image.data[i].r;
-        pixels[pI+1] = image.data[i].g;
-        pixels[pI+2] = image.data[i].b;
+    std::cout << " done!" << std::endl;
+    // compute vertex normals
+    std::cout << "Computing vertex normals...";
+    VN.resize(V.size());
+    for (unsigned int i = 0; i < VN.size(); i++) {
+        VN[i] = glm::vec3(0.0f);
     }
-
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, image.w, image.h, 0, GL_RGB, GL_UNSIGNED_BYTE, pixels);
-    free(pixels);
-
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-
+    for (unsigned int j = 0; j < T.size(); j++) {
+        VN[T[j].x] += faceN[j];
+        VN[T[j].y] += faceN[j];
+        VN[T[j].z] += faceN[j];
+    }
+    for (unsigned int i = 0; i < VN.size(); i++) {
+        VN[i] = glm::normalize(VN[i]);
+    }
+    std::cout << " done!" << std::endl;
+    // initialize normal array buffer
+    NBO.init();
+    NBO.update(VN);
+#endif
 
     // for part 2 render to texture
     // reference the posted tutorial http://www.opengl-tutorial.org/intermediate-tutorials/tutorial-14-render-to-texture/
@@ -524,6 +530,19 @@ int main(void)
     // Set "gPosition" as our colour attachement #2
     glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, gPosition, 0);
 
+    // depth
+    GLuint gDepth;
+    glGenTextures(1, &gDepth);
+    glBindTexture(GL_TEXTURE_2D, gDepth);
+    glTexImage2D(GL_TEXTURE_2D, 0,GL_RGB, windowWidth, windowHeight, 0,GL_RGB, GL_UNSIGNED_BYTE, 0);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    // Set "gPosition" as our colour attachement #2
+    glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT3, gDepth, 0);
+
+
     // The depth buffer
     GLuint depthrenderbuffer;
     glGenRenderbuffers(1, &depthrenderbuffer);
@@ -534,8 +553,8 @@ int main(void)
 
 
     // Set the list of draw buffers.
-    GLenum DrawBuffers[3] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2};
-    glDrawBuffers(3, DrawBuffers); // "1" is the size of DrawBuffers
+    GLenum DrawBuffers[4] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3};
+    glDrawBuffers(4, DrawBuffers); // "1" is the size of DrawBuffers
 
     // Always check that our framebuffer is ok
     if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE){
@@ -582,52 +601,6 @@ int main(void)
 
 
 
-
-#else
-    // load  OFF file
-    glm::vec3 min, max, tmpVec;
-    std::cout << "Loading OFF file...";
-    loadOFFFile("../data/stanford_dragon2.off", V, T, min, max);
-    //loadOFFFile("../data/bunny.off", V, T, min, max);
-    std::cout << " done! " << V.size() << " vertices, " << T.size() << " triangles" << std::endl;
-    VBO.update(V);
-    IndexBuffer.update(T);
-
-    // compute model matrix so that the mesh is inside a -1..1 cube
-    tmpVec = max - min;
-    float maxVal = glm::max(tmpVec.x, glm::max(tmpVec.y, tmpVec.z));
-    tmpVec /= 2.0f;
-    modelMatrix = glm::scale(glm::mat4(1.0f), glm::vec3(2.0f / maxVal));
-    modelMatrix *= glm::translate(glm::mat4(1.0f), -(min + tmpVec));
-    
-    // compute face normals
-    std::cout << "Computing face normals...";
-    std::vector<glm::vec3> faceN(3);
-    faceN.resize(T.size());
-    for (unsigned int i = 0; i < faceN.size(); i++) {
-        faceN[i] = glm::normalize(glm::cross(V[T[i].y] - V[T[i].x], V[T[i].z] - V[T[i].x]));
-    }
-    std::cout << " done!" << std::endl;
-    // compute vertex normals
-    std::cout << "Computing vertex normals...";
-    VN.resize(V.size());
-    for (unsigned int i = 0; i < VN.size(); i++) {
-        VN[i] = glm::vec3(0.0f);
-    }
-    for (unsigned int j = 0; j < T.size(); j++) {
-        VN[T[j].x] += faceN[j];
-        VN[T[j].y] += faceN[j];
-        VN[T[j].z] += faceN[j];
-    }
-    for (unsigned int i = 0; i < VN.size(); i++) {
-        VN[i] = glm::normalize(VN[i]);
-    }
-    std::cout << " done!" << std::endl;
-    // initialize normal array buffer
-    NBO.init();
-    NBO.update(VN);
-#endif
-
     // Initialize the OpenGL Program
     // A program controls the OpenGL pipeline and it must contains
     // at least a vertex shader and a fragment shader to be valid
@@ -659,6 +632,7 @@ int main(void)
 
     glBindFragDataLocation(program.getprogram_shader(), 1, "gNormal");
     glBindFragDataLocation(program.getprogram_shader(), 2, "gPosition");
+    glBindFragDataLocation(program.getprogram_shader(), 3, "gDepth");
 
     // Register the keyboard callback
     glfwSetKeyCallback(window, key_callback);
@@ -724,10 +698,10 @@ int main(void)
         glEnable(GL_DEPTH_TEST);
 
 
-        // Bind our texture in Texture Unit 0
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, tex);
-        glUniform1i(TextureID, 0);
+//        // Bind our texture in Texture Unit 0
+//        glActiveTexture(GL_TEXTURE0);
+//        glBindTexture(GL_TEXTURE_2D, tex);
+//        glUniform1i(TextureID, 0);
 
         program.bindVertexAttribArray("position", VBO);
         program.bindVertexAttribArray("normal", NBO);
@@ -775,11 +749,22 @@ int main(void)
         glBindTexture(GL_TEXTURE_2D, gPosition); // position
         glUniform1i(program2.uniform("gPosition"), 2);
 
+        glActiveTexture(GL_TEXTURE3);
+        glBindTexture(GL_TEXTURE_2D, gDepth); // position
+        glUniform1i(program2.uniform("gDepth"), 3);
+
+
+
+
+
+
 
         // bind vertices
         glEnableVertexAttribArray(0);
         glBindBuffer(GL_ARRAY_BUFFER, quad_vertexbuffer);
         glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,0,(void*)0);
+
+
 
 
         // Draw the QUAD
@@ -800,7 +785,7 @@ int main(void)
     glDeleteTextures(1, &renderedTexture);
     glDeleteRenderbuffers(1, &depthrenderbuffer);
     glDeleteBuffers(1, &quad_vertexbuffer);
-    glDeleteTextures(1, &tex);
+//    glDeleteTextures(1, &tex);
 
     program2.free();
     TBO.free();

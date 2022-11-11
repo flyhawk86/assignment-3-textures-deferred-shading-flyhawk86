@@ -15,9 +15,9 @@ in vec3 normal;
 out vec3 n;
 out vec3 color;
 out vec3 pos;
-
-in vec2 texcoord;//
-out vec2 Texcoord;//
+//
+//in vec2 texcoord;//
+//out vec2 Texcoord;//
 
 void main()
 {
@@ -26,5 +26,5 @@ void main()
     pos = vec3(modelMatrix * vec4(position, 1.0));
     gl_Position = projMatrix * viewMatrix * modelMatrix * vec4(position, 1.0);
 
-    Texcoord = texcoord;//
+//    Texcoord = texcoord;//
 }
